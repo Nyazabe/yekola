@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Socratic GenAI Tutor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+        }
+        /* Adjusted max-width to make chat bubbles wider */
+        .chat-message {
+            max-width: 90%; 
+        }
+        .user-message {
+            align-self: flex-end;
+            background-color: #3b82f6;
+            color: white;
+            border-bottom-right-radius: 0;
+        }
+        .ai-message {
+            align-self: flex-start;
+            background-color: #e5e7eb;
+            color: #1f2937;
+            border-bottom-left-radius: 0;
+        }
+        .loading-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 1rem;
+        }
+        .loading-dot {
+            width: 10px;
+            height: 10px;
+            background-color: #6b7280;
+            border-radius: 50%;
+            margin: 0 4px;
+            animation: bounce 1s infinite;
+        }
+        .loading-dot:nth-child(2) {
+            animation-delay: 0.2s;
+        }
+        .loading-dot:nth-child(3) {
+            animation-delay: 0.4s;
+        }
+        @keyframes bounce {
+            0%, 100% {
+                transform: translateY(0);
+            }
+            50% {
+                transform: translateY(-10px);
+            }
+        }
+        /* Custom message box for errors and notifications */
+        #status-message-box {
+            position: fixed;
+            bottom: 2rem;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 0.75rem 1.5rem;
+            background-color: #f87171;
+            color: white;
+            border-radius: 0.5rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            opacity: 0;
+            transition: opacity 0.5s ease-in-out;
+            z-index: 1000;
+        }
+        #status-message-box.show {
+            opacity: 1;
+        }
+        /* Mobile-first layout adjustments */
+        @media (max-width: 768px) {
+            .chat-container {
+                height: calc(100vh - 6rem); /* Full height minus header and input */
+            }
+        }
+        .audio-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 0.5rem;
+            margin-left: 0.5rem;
+            color: #6b7280;
+            transition: color 0.2s;
+        }
+        .audio-btn:hover {
+            color: #3b82f6;
+        }
+        .audio-loading-spinner {
+            border: 2px solid #f3f3f3;
+            border-radius: 50%;
+            border-top: 2px solid #3b82f6;
+            width: 1rem;
+            height: 1rem;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="flex flex-col h-screen antialiased">
+
+    <!-- Main Container -->
+    <div class="flex-1 flex flex-col max-w-2xl mx-auto w-full bg-white rounded-lg shadow-xl overflow-hidden my-4">
+
+        <!-- Chat Header -->
+        <div class="bg-blue-600 p-4 text-white text-center rounded-t-lg flex justify-between items-center">
+            <h1 class="text-xl font-bold flex-1 text-center">Socratic AI Tutor</h1>
+            <select id="language-selector" class="bg-white text-blue-600 rounded-lg p-1 text-sm font-semibold">
+                <option value="English">English</option>
+                <option value="French">French</option>
+                <option value="Lingala">Lingala</option>
+                <option value="Swahili">Swahili</option>
+            </select>
+        </div>
+
+        <!-- Chat History -->
+        <div id="chat-history" class="flex-1 overflow-y-auto p-4 flex flex-col space-y-4">
+            <!-- Initial welcome message from the AI -->
+            <div class="chat-message ai-message p-3 rounded-xl shadow-md flex items-center">
+                <p id="welcome-message" class="flex-1">Hello! I'm your Socratic programming tutor. I can speak English, French, Lingala, and Swahili. I can also help with code in text-based files, images, or through voice input. What are you working on today?</p>
+            </div>
+        </div>
+
+        <!-- Loading Indicator -->
+        <div id="loading-indicator" class="loading-container hidden">
+            <div class="loading-dot"></div>
+            <div class="loading-dot"></div>
+            <div class="loading-dot"></div>
+        </div>
+        
+        <!-- File Preview Area -->
+        <div id="file-preview-container" class="p-2 bg-gray-200 hidden">
+            <img id="image-preview" src="" alt="Image Preview" class="max-h-32 rounded-lg mx-auto hidden">
+            <div id="text-preview" class="p-2 text-sm text-gray-700 bg-gray-100 rounded-lg hidden"></div>
+        </div>
+
+        <!-- Message Input -->
+        <div class="p-4 bg-gray-100 flex items-center border-t border-gray-200 rounded-b-lg">
+            <label for="file-upload" class="p-2 cursor-pointer text-gray-500 hover:text-blue-600 transition-colors">
+                <!-- Paperclip icon for file upload -->
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13.5" />
+                </svg>
+                <input id="file-upload" type="file" class="hidden" accept="image/*,.txt,.py,.php">
+            </label>
+            <button id="voice-input-btn" class="p-2 text-gray-500 hover:text-red-500 transition-colors focus:outline-none">
+                <!-- Microphone icon for voice input -->
+                <svg xmlns="http://www.w3.org/w3/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a4 4 0 110-8 4 4 0 010 8z" />
+                </svg>
+            </button>
+            <input type="text" id="user-input" class="flex-1 p-3 mx-2 border-2 border-gray-300 rounded-full focus:outline-none focus:border-blue-500 transition-colors" placeholder="Type a message or use the icons...">
+            <button id="send-btn" class="p-3 bg-blue-600 text-white rounded-full shadow-lg hover:bg-blue-700 transition-colors focus:outline-none">
+                <!-- Send icon -->
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M12 5l7 7-7 7" />
+                </svg>
+            </button>
+        </div>
+    </div>
+
+    <!-- Custom status message box -->
+    <div id="status-message-box" class="hidden"></div>
+
+    <script type="module">
+        // This is a self-contained web app to simulate a Socratic AI Tutor.
+        // It now uses a secure proxy API to make calls to the Gemini API.
+
+        // --- UI Element References ---
+        const userInput = document.getElementById('user-input');
+        const sendBtn = document.getElementById('send-btn');
+        const chatHistory = document.getElementById('chat-history');
+        const loadingIndicator = document.getElementById('loading-indicator');
+        const voiceInputBtn = document.getElementById('voice-input-btn');
+        const fileUploadInput = document.getElementById('file-upload');
+        const filePreviewContainer = document.getElementById('file-preview-container');
+        const imagePreview = document.getElementById('image-preview');
+        const textPreview = document.getElementById('text-preview');
+        const languageSelector = document.getElementById('language-selector');
+        const welcomeMessage = document.getElementById('welcome-message');
+        const statusMessageBox = document.getElementById('status-message-box');
+
+        // --- LLM API Configuration (Using a secure proxy) ---
+        // IMPORTANT: Replace this URL with the URL of your deployed proxy API.
+        // Example: https://my-socratic-tutor.vercel.app/api/chat
+        const proxyUrl = "VOTRE_URL_DU_PROXY/api/chat";
+        
+        // State for managing files
+        let base64Image = null;
+        let uploadedText = null;
+        let isRecording = false;
+
+        // --- Socratic Prompt Engineering and Language Mapping ---
+        const socraticBasePrompt = `
+            You are a Socratic programming tutor for students in Sub-Saharan Africa. Your purpose is to guide a student to a solution
+            by asking questions and prompting critical thinking, not by providing the answer directly.
+            The student is a learner in a developing country.
+
+            **Core Behavioral Rules:**
+            1.  **Never provide the full code solution.** You may provide small, conceptual code snippets to illustrate a point, but avoid a complete, runnable solution.
+            2.  **Break down problems into smaller, manageable steps.** If the student asks for a complex program, ask them what the first step would be.
+            3.  **Ask guiding questions.** Focus on questions that prompt the student to reflect on their own logic, like "What is the next step?", "Why this approach?", or "What does this function do?"
+            4.  **Use culturally and contextually relevant analogies.** Where appropriate, use simple, relatable examples from a local context.
+            5.  **Maintain a supportive and encouraging tone.**
+            6.  **Do not get stuck in a loop of only asking "What's the next step?".** Vary your questions to promote different computational thinking skills.
+            The student will ask you a question about a programming problem. Your response should be a Socratic question or a hint, not the solution.
+            
+            When an image is provided, analyze the content and formulate a Socratic question based on it. When a text file is provided, treat its content as the user's message.
+        `;
+        
+        const languageMap = {
+            'English': { promptInstruction: 'Respond exclusively in English.', welcome: "Hello! I'm your Socratic programming tutor. I can speak English, French, Lingala, and Swahili. I can also help with code in text-based files, images, or through voice input. What are you working on today?", voiceCode: 'en-US', ttsVoice: 'Kore' },
+            'French': { promptInstruction: 'Répondez exclusivement en français.', welcome: "Bonjour! Je suis votre tuteur de programmation socratique. Sur quoi travaillez-vous aujourd'hui?", voiceCode: 'fr-FR', ttsVoice: 'Puck' },
+            'Lingala': { promptInstruction: 'Répondez exclusivement en Lingala.', welcome: "Mbote! Naza socratic programme tuteur na yo. Ozali kosala nini lelo?", voiceCode: 'en-US', ttsVoice: 'Kore' }, 
+            'Swahili': { promptInstruction: 'Jibu pekee katika Kiswahili.', welcome: "Habari! Mimi ni mwalimu wako wa programu ya Kiswahili. Unafanya kazi gani leo?", voiceCode: 'sw-KE', ttsVoice: 'Kore' }
+        };
+
+        let chatHistoryArray = [];
+        let finalTranscript = '';
+
+        function getSocraticSystemPrompt() {
+            const selectedLanguage = languageSelector.value;
+            const instruction = languageMap[selectedLanguage].promptInstruction;
+            return socraticBasePrompt + `\n\n${instruction}`;
+        }
+
+        function setInitialMessage() {
+            const selectedLanguage = languageSelector.value;
+            welcomeMessage.textContent = languageMap[selectedLanguage].welcome;
+            // Clear chat history on language change to prevent confusion
+            chatHistory.innerHTML = '';
+            const initialMessageDiv = document.createElement('div');
+            initialMessageDiv.classList.add('chat-message', 'ai-message', 'p-3', 'rounded-xl', 'shadow-md', 'flex', 'items-center');
+            const p = document.createElement('p');
+            p.classList.add('flex-1');
+            p.textContent = languageMap[selectedLanguage].welcome;
+            initialMessageDiv.appendChild(p);
+
+            chatHistory.appendChild(initialMessageDiv);
+            chatHistoryArray = [{ role: "user", parts: [{ text: getSocraticSystemPrompt() }] }];
+        }
+
+        // --- Helper function to display messages in the chat UI ---
+        function displayMessage(text, sender, imageData = null, uploadedContent = null, speakResponse = false) {
+            const messageDiv = document.createElement('div');
+            messageDiv.classList.add('chat-message', 'p-3', 'rounded-xl', 'shadow-md', 'break-words', 'flex', 'items-center');
+
+            if (sender === 'user') {
+                messageDiv.classList.add('user-message', 'ml-auto');
+            } else {
+                messageDiv.classList.add('ai-message');
+            }
+            
+            const messageContent = document.createElement('p');
+            messageContent.classList.add('flex-1');
+
+            if (imageData) {
+                const img = document.createElement('img');
+                img.src = imageData;
+                img.alt = 'User uploaded image';
+                img.classList.add('max-w-full', 'rounded-lg', 'mt-2');
+                messageDiv.appendChild(img);
+            }
+
+            if (uploadedContent) {
+                const pre = document.createElement('pre');
+                pre.textContent = uploadedContent;
+                pre.classList.add('p-2', 'bg-blue-500', 'text-white', 'rounded-lg', 'mt-2', 'whitespace-pre-wrap');
+                messageDiv.appendChild(pre);
+            }
+            
+            if (text) {
+                messageContent.textContent = text;
+            }
+            
+            messageDiv.appendChild(messageContent);
+            
+            if (sender === 'ai') {
+                const audioButton = document.createElement('button');
+                audioButton.classList.add('audio-btn', 'ml-2');
+                // Headphone icon SVG
+                audioButton.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-headphones"><path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3"></path></svg>`;
+                audioButton.onclick = () => speakText(text, audioButton);
+                messageDiv.appendChild(audioButton);
+
+                // Conditionally play audio based on the speakResponse flag
+                if (speakResponse) {
+                    speakText(text, audioButton);
+                }
+            }
+
+            chatHistory.appendChild(messageDiv);
+            chatHistory.scrollTop = chatHistory.scrollHeight; // Auto-scroll to the bottom
+        }
+
+        // --- Function to show temporary status messages ---
+        function showMessage(message) {
+            statusMessageBox.textContent = message;
+            statusMessageBox.classList.remove('hidden');
+            statusMessageBox.classList.add('show');
+            setTimeout(() => {
+                statusMessageBox.classList.remove('show');
+                statusMessageBox.classList.add('hidden');
+            }, 3000); // Message disappears after 3 seconds
+        }
+
+        // --- Audio conversion helpers ---
+        function base64ToArrayBuffer(base64) {
+            const binaryString = window.atob(base64);
+            const len = binaryString.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            return bytes.buffer;
+        }
+
+        function pcmToWav(pcmData, sampleRate) {
+            const wavData = new ArrayBuffer(44 + pcmData.length * 2);
+            const view = new DataView(wavData);
+            let offset = 0;
+
+            function writeString(str) {
+                for (let i = 0; i < str.length; i++) {
+                    view.setUint8(offset++, str.charCodeAt(i));
+                }
+            }
+            function writeUint32(value) {
+                view.setUint32(offset, value, true);
+                offset += 4;
+            }
+            function writeUint16(value) {
+                view.setUint16(offset, value, true);
+                offset += 2;
+            }
+
+            // RIFF header
+            writeString('RIFF');
+            writeUint32(36 + pcmData.length * 2);
+            writeString('WAVE');
+
+            // fmt chunk
+            writeString('fmt ');
+            writeUint32(16);
+            writeUint16(1); // PCM format
+            writeUint16(1); // Mono
+            writeUint32(sampleRate);
+            writeUint32(sampleRate * 2); // Byte rate
+            writeUint16(2); // Block align
+            writeUint16(16); // Bits per sample
+
+            // data chunk
+            writeString('data');
+            writeUint32(pcmData.length * 2);
+
+            // Write PCM data
+            for (let i = 0; i < pcmData.length; i++) {
+                view.setInt16(offset, pcmData[i], true);
+                offset += 2;
+            }
+
+            return new Blob([view], { type: 'audio/wav' });
+        }
+        
+        // --- TTS Functionality (via a secure proxy) ---
+        let audioTimeout;
+        async function speakText(text, button) {
+            const originalIcon = button.innerHTML;
+            button.innerHTML = `<div class="audio-loading-spinner"></div>`;
+            
+            if (proxyUrl === "VOTRE_URL_DU_PROXY/api/chat") {
+                showMessage("Erreur: L'URL du proxy n'est pas configurée. Veuillez la mettre à jour dans le code.");
+                button.innerHTML = originalIcon;
+                return;
+            }
+
+            const payload = {
+                text: text,
+                voice: languageMap[languageSelector.value].ttsVoice
+            };
+
+            const maxRetries = 5;
+            let retryCount = 0;
+            let response;
+            let success = false;
+            let audio;
+
+            while (retryCount < maxRetries && !success) {
+                try {
+                    response = await fetch(proxyUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'tts', payload: payload })
+                    });
+
+                    if (response.status === 429) {
+                        const delay = Math.pow(2, retryCount) * 1000;
+                        console.warn(`TTS Rate limit hit, retrying in ${delay}ms...`);
+                        await new Promise(res => setTimeout(res, delay));
+                        retryCount++;
+                    } else if (!response.ok) {
+                        throw new Error(`TTS API responded with status: ${response.status}`);
+                    } else {
+                        success = true;
+                    }
+                } catch (error) {
+                    console.error('TTS Fetch error:', error);
+                    const delay = Math.pow(2, retryCount) * 1000;
+                    console.warn(`TTS Fetch failed, retrying in ${delay}ms...`);
+                    await new Promise(res => setTimeout(res, delay));
+                    retryCount++;
+                }
+            }
+
+            button.innerHTML = originalIcon;
+
+            if (success) {
+                const result = await response.json();
+                const audioData = result?.audioData;
+                const mimeType = result?.mimeType;
+
+                if (audioData && mimeType && mimeType.startsWith("audio/")) {
+                    try {
+                        const sampleRateMatch = mimeType.match(/rate=(\d+)/);
+                        const sampleRate = sampleRateMatch ? parseInt(sampleRateMatch[1], 10) : 16000;
+                        const pcmData = base64ToArrayBuffer(audioData);
+                        const pcm16 = new Int16Array(pcmData);
+                        const wavBlob = pcmToWav(pcm16, sampleRate);
+                        const audioUrl = URL.createObjectURL(wavBlob);
+                        
+                        audio = new Audio(audioUrl);
+                        audio.play();
+
+                        audioTimeout = setTimeout(() => {
+                            if (!audio.paused) {
+                                audio.pause();
+                                showMessage("Lecture audio arrêtée après 30 secondes.");
+                            }
+                            URL.revokeObjectURL(audioUrl);
+                        }, 30000);
+
+                        audio.onended = () => {
+                            clearTimeout(audioTimeout);
+                            URL.revokeObjectURL(audioUrl);
+                        };
+                    } catch (e) {
+                        console.error('Audio playback error:', e);
+                        showMessage("Désolé, je n'ai pas pu lire l'audio.");
+                    }
+                } else {
+                    console.error('Invalid audio data from TTS API.');
+                    showMessage("Désolé, je n'ai pas pu générer l'audio.");
+                }
+            } else {
+                showMessage("Désolé, le service audio n'est pas disponible. Veuillez réessayer plus tard.");
+            }
+        }
+        
+        // --- Main function to process user input and get response from LLM (via a secure proxy) ---
+        async function processMessage(userMessage, speakResponse = false) {
+            if (userMessage === '' && !base64Image && !uploadedText) return;
+            
+            if (proxyUrl === "VOTRE_URL_DU_PROXY/api/chat") {
+                displayMessage("Erreur: L'URL du proxy n'est pas configurée. Veuillez la mettre à jour dans le code.", 'ai');
+                return;
+            }
+
+            // Construct the payload
+            let payloadParts = [];
+            if (userMessage) {
+                payloadParts.push({ text: userMessage });
+            }
+            if (uploadedText) {
+                payloadParts.push({ text: uploadedText });
+            }
+            if (base64Image) {
+                payloadParts.push({ 
+                    inlineData: {
+                        mimeType: "image/png",
+                        data: base64Image.split(',')[1]
+                    }
+                });
+            }
+
+            chatHistoryArray.push({ role: "user", parts: payloadParts });
+            displayMessage(userMessage, 'user', base64Image, uploadedText);
+            
+            loadingIndicator.classList.remove('hidden');
+
+            const payload = {
+                contents: chatHistoryArray.slice(1), 
+                systemInstruction: { parts: [{ text: getSocraticSystemPrompt() }] }
+            };
+
+            const maxRetries = 5;
+            let retryCount = 0;
+            let response;
+            let success = false;
+            
+            while (retryCount < maxRetries && !success) {
+                try {
+                    response = await fetch(proxyUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'chat', payload: payload })
+                    });
+
+                    if (response.status === 429) {
+                        const delay = Math.pow(2, retryCount) * 1000;
+                        console.warn(`Rate limit hit, retrying in ${delay}ms...`);
+                        await new Promise(res => setTimeout(res, delay));
+                        retryCount++;
+                    } else if (!response.ok) {
+                        throw new Error(`API responded with status: ${response.status}`);
+                    } else {
+                        success = true;
+                    }
+                } catch (error) {
+                    console.error('Fetch error:', error);
+                    const delay = Math.pow(2, retryCount) * 1000;
+                    console.warn(`Fetch failed, retrying in ${delay}ms...`);
+                    await new Promise(res => setTimeout(res, delay));
+                    retryCount++;
+                }
+            }
+            
+            loadingIndicator.classList.add('hidden');
+
+            if (success) {
+                const result = await response.json();
+                const aiResponse = result?.text;
+
+                if (aiResponse) {
+                    displayMessage(aiResponse, 'ai', null, null, speakResponse);
+                    chatHistoryArray.push({ role: "model", parts: [{ text: aiResponse }] });
+                } else {
+                    displayMessage("Désolé, j'ai des difficultés. Pouvez-vous reformuler votre question ?", 'ai', null, null, speakResponse);
+                }
+            } else {
+                displayMessage("Désolé, le serveur ne répond pas. Veuillez réessayer plus tard.", 'ai', null, null, speakResponse);
+            }
+
+            // Clear input and file state after sending
+            userInput.value = '';
+            base64Image = null;
+            uploadedText = null;
+            filePreviewContainer.classList.add('hidden');
+            imagePreview.classList.add('hidden');
+            textPreview.classList.add('hidden');
+            fileUploadInput.value = '';
+        }
+
+        // --- Voice Input (Web Speech API) ---
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (SpeechRecognition) {
+            const recognition = new SpeechRecognition();
+            recognition.continuous = true; // Listen continuously
+            recognition.interimResults = true; // Get real-time results
+
+            recognition.onstart = () => {
+                isRecording = true;
+                voiceInputBtn.classList.add('text-red-500');
+                voiceInputBtn.classList.remove('text-gray-500');
+                userInput.placeholder = "Listening...";
+                finalTranscript = '';
+            };
+
+            recognition.onresult = (event) => {
+                let interimTranscript = '';
+                for (let i = event.resultIndex; i < event.results.length; ++i) {
+                    const transcript = event.results[i][0].transcript;
+                    if (event.results[i].isFinal) {
+                        finalTranscript += transcript;
+                    } else {
+                        interimTranscript += transcript;
+                    }
+                }
+                userInput.value = finalTranscript + interimTranscript;
+            };
+
+            recognition.onerror = (event) => {
+                console.error('Speech recognition error:', event.error);
+                if (event.error === 'not-allowed') {
+                    displayMessage('Veuillez activer l\'accès au microphone pour utiliser la saisie vocale.', 'ai');
+                }
+                isRecording = false;
+                voiceInputBtn.classList.remove('text-red-500');
+                voiceInputBtn.classList.add('text-gray-500');
+                userInput.placeholder = "Type a message or use the icons...";
+            };
+            
+            recognition.onend = () => {
+                isRecording = false;
+                voiceInputBtn.classList.remove('text-red-500');
+                voiceInputBtn.classList.add('text-gray-500');
+                userInput.placeholder = "Type a message or use the icons...";
+            };
+
+            voiceInputBtn.addEventListener('click', () => {
+                if (isRecording) {
+                    recognition.stop();
+                } else {
+                    const selectedLanguage = languageSelector.value;
+                    recognition.lang = languageMap[selectedLanguage].voiceCode;
+                    recognition.start();
+                }
+            });
+
+            sendBtn.addEventListener('click', () => {
+                if (isRecording) {
+                    recognition.stop();
+                    // Process the final transcript and clear the input
+                    const userMessage = finalTranscript;
+                    if (userMessage.trim() || base64Image || uploadedText) {
+                        // Auto-play audio only for voice input
+                        processMessage(userMessage, true);
+                    }
+                    finalTranscript = '';
+                } else {
+                    const userMessage = userInput.value.trim();
+                    if (userMessage || base64Image || uploadedText) {
+                        // Do not auto-play audio for text or file input
+                        processMessage(userMessage, false);
+                    }
+                }
+            });
+
+        } else {
+            console.warn('Speech Recognition API is not supported in this browser.');
+            voiceInputBtn.style.display = 'none'; 
+        }
+
+        // --- File Upload for Image Recognition and Text Files ---
+        fileUploadInput.addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (!file) {
+                base64Image = null;
+                uploadedText = null;
+                filePreviewContainer.classList.add('hidden');
+                imagePreview.classList.add('hidden');
+                textPreview.classList.add('hidden');
+                return;
+            }
+
+            // Supported text file extensions
+            const supportedTextExtensions = ['.txt', '.py', '.php'];
+            const isTextFile = supportedTextExtensions.some(ext => file.name.endsWith(ext));
+
+            if (file.type.startsWith('image/')) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    base64Image = e.target.result;
+                    uploadedText = null;
+                    imagePreview.src = base64Image;
+                    imagePreview.classList.remove('hidden');
+                    textPreview.classList.add('hidden');
+                    filePreviewContainer.classList.remove('hidden');
+                };
+                reader.readAsDataURL(file);
+            } else if (isTextFile) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    uploadedText = e.target.result;
+                    base64Image = null;
+                    textPreview.textContent = `Fichier téléchargé : ${file.name}`;
+                    textPreview.classList.remove('hidden');
+                    imagePreview.classList.add('hidden');
+                    filePreviewContainer.classList.remove('hidden');
+                };
+                reader.readAsText(file);
+            } else {
+                showMessage("Le Tuteur IA Socratique ne gère pas ce type de format pour le moment.");
+                fileUploadInput.value = ''; // Clear the input
+                base64Image = null;
+                uploadedText = null;
+                filePreviewContainer.classList.add('hidden');
+            }
+        });
+
+        // --- Event Listeners ---
+        userInput.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter' && !isRecording) {
+                const userMessage = userInput.value.trim();
+                if (userMessage || base64Image || uploadedText) {
+                    // Do not auto-play audio for text or file input
+                    processMessage(userMessage, false);
+                }
+            }
+        });
+        languageSelector.addEventListener('change', setInitialMessage);
+
+        // Initial setup
+        setInitialMessage();
+    </script>
+
+</body>
+</html>
